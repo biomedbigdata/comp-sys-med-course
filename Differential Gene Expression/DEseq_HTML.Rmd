@@ -58,7 +58,7 @@ head( counts(dd, normalized=TRUE ) )
 ```
 
 
-##Gene Dispersion
+## Gene Dispersion
 
 - To eliminate the read count bias
 - A risk in differential expression analysis is that low count values often show extreme log fold changes -> DEseq2 counters this by shrinking LFC values
@@ -70,7 +70,7 @@ dd<-estimateDispersions( dd )
 plotDispEsts(dd)
 ```
 
-##Inference: Calling differential expression
+## Inference: Calling differential expression
 
 To see whether there is differential expression between conditions "Control" and "Tumor", 
 
@@ -91,7 +91,7 @@ The interpretation of the columns of data.frame is as follows.
 - padj p value adjusted for multiple testing with the Benjamini-Hochberg procedure  
 
 
-##MA Plot
+## MA Plot
 
 ```{r message=FALSE, echo=TRUE, warning=FALSE}
 plotMA(res, ylim=c(-2,2))
@@ -101,22 +101,25 @@ Questions:
 - What does M and A stand for?
 - What can you say about the relationship of mean count and log fold change? 
 
-##Volcano plot
+## Volcano plot
 
 ```{r}
 library(EnhancedVolcano)
 EnhancedVolcano(res, lab = rownames(res), x = 'log2FoldChange',  y = 'pvalue', xlim = c(-5, 8), ylim=c(0,5), pCutoff = 0.001)
 ```
 
-##Plot counts for single gene
+## Plot counts for single gene
 To check the counts of reads for a single gene across the groups.
 ```{r}
 plotCounts(dds, gene=which.min(res$padj), intgroup="Condition")
+####how to plot using ggplot
+f<-plotCounts(dd, gene=which.min(res$padj), intgroup="Condition", returnData = TRUE)
+ggplot(f,aes(x=interaction(Condition), y=count, color=Condition,))+geom_point()+scale_y_log10()
 ```
 
 Bonus task: recreate this as a box plot with ggplot2
 
-##Significant genes
+## Significant genes
 To find the significant genes, according to some chosen threshold for the false discovery rate (FDR) as well as p-value
 
 ```{r, message=FALSE, echo=TRUE, warning=FALSE}
@@ -125,31 +128,67 @@ resSig_p <- subset(res, pvalue < 0.05)
 resSig_p
 head( resSig_p[ order(resSig$pvalue), ] )
 ```
-##Genes which are downregulated in Tumor
+## Genes which are downregulated in Tumor
 ```{r}
 head( resSig_p[order( resSig_p$log2FoldChange, -resSig_p$baseMean), ] )
 ```
 
 
-####Upregulated genes
+## Upregulated genes
 ```{r, message=FALSE, echo=TRUE, warning=FALSE}
 head( resSig_p[ order( -resSig$log2FoldChange, -resSig$baseMean ), ] )
+```
+
+## Multiple factor analysis
+
+```{r, message=FALSE, echo=TRUE, warning=FALSE}
+dd_multi <- DESeqDataSetFromMatrix(countData = readcounts,
+                              colData = coldata,
+                             design = ~Condition+Obesity)
+dd_multi$group <- factor(paste0(dd_multi$Condition, dd_multi$Obesity))
+design(dd_multi) <- ~ group
+dd_multi <- DESeq(dd_multi)
+resultsNames(dd_multi)
+results(dd_multi, contrast=c("group", "Tumoryes", "ControlNo"))
 ```
 
 ## Heatmap of the count table
 
 Visualization of differentially expressed genes using heatmap function
 ```{r, message=FALSE, echo=TRUE, warning=FALSE}
-######varianceStabilizingTransformation: is it good to use ?#########
-vsdFull = varianceStabilizingTransformation(dds )
-library("RColorBrewer")
-library("gplots")
-select = order(rowMeans(counts(dds)), decreasing=TRUE)[1:50]
-hmcol = colorRampPalette(brewer.pal(10, "GnBu"))(100)
-heatmap.2(assay(vsdFull)[select,], col = hmcol, trace="none", margin=c(10, 6))
+library(pheatmap)
+rld<-rlog(dd)
+mat = assay(rld)[ head(order(res$padj),30), ]#top 30 genes
+mat = mat - rowMeans(mat)
+df = as.data.frame(colData(rld)[,c("Condition")]) # Create a dataframe with a column of the conditions
+colnames(df) = "Condition" # Rename the column header
+rownames(df) = colnames(mat) # add rownames
+# and plot the actual heatmap
+pheatmap(mat, annotation_col=df)
 ```
 
-##Exporting results to CSV files
+## Corrplot
+
+This plot will help to get an overview of the correlation across all samples. he corrplot package provides with a convenient plotting function to help us visualise correlation matrix. Correlation of gene expression between every pair of samples is needed for the corrplot. cor() function is used for with the normalized gene counts:
+```{r, message=FALSE, echo=TRUE, warning=FALSE}
+library(corrplot)
+library(dplyr)
+N_counts<-counts(dd, normalized=TRUE )
+Corr <- N_counts %>% 
+    cor(method = "spearman")
+
+corrplot(Corr, 
+         method = "circle", cl.lim = c(0.8, 1), is.corr = FALSE)
+```
+
+## PCA plot
+```{r}
+vsdata <- vst(dd, blind=FALSE)
+plotPCA(vsdata, intgroup="Condition")
+
+```
+
+## Exporting results to CSV files
 ```{r, message=FALSE, echo=TRUE, warning=FALSE}
 write.csv(resSig_p, file="condition_treated_results.csv")
 ```
