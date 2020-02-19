@@ -1,0 +1,135 @@
+---
+title: "GOExpress"
+author: ""
+date: "13 February 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Installation of GOexpress
+
+- Used for visualisation and interpretation of multifactorial transcriptomics data 
+
+```{r message=FALSE, echo=TRUE, warning=FALSE}
+##BiocManager::install("geomnet")
+library(GOexpress)
+library(Biobase)
+```
+
+## Input data
+
+- Filtered normalised expression matrix
+- AnnotatedDataFrame object of the Biobase package
+ -  phenotypic information for each of those samples
+
+```{r message=FALSE, echo=TRUE, warning=FALSE}
+exprsFile<-"C:/Users/selva/Desktop/B2_course/GO_input"
+exprs <- as.matrix(read.table(exprsFile, header = TRUE,sep = "\t", row.names = 1, as.is = TRUE))
+head(exprs)
+```
+
+
+## Creating a Phenotypic data
+
+```{r message=FALSE, echo=TRUE, warning=FALSE}
+phenoDataFile <- "C:/Users/selva/Desktop/B2_course/GO_meta.csv"
+phenoDataFrame <- read.table(phenoDataFile,header=TRUE,sep=",",as.is=TRUE, row.names = 1)
+phenoData <- new("AnnotatedDataFrame", data=phenoDataFrame)
+head(phenoData)
+es <- new("ExpressionSet", exprs=exprs, phenoData=phenoData)
+head(es)
+```
+
+
+##Preparing the grouping factor to analyse
+
+-  Finding GO terms containing genes that best classify samples according their COndition
+```{r message=FALSE, echo=TRUE, warning=FALSE}
+is.factor(es$Condition)
+```
+```{r message=FALSE, echo=TRUE, warning=FALSE}
+#####This line would convert the Condition column as factor######
+es$Condition <- factor(es$Condition)
+```
+
+
+##Generating local Annotations
+
+```{r message=FALSE, echo=TRUE, warning=FALSE}
+library(biomaRt)
+# Connect to the Ensembl Genes annotation for Homosapiens
+ensembl = useMart("ensembl",dataset = "hsapiens_gene_ensembl")
+```
+
+
+##Downloading three types of annotations
+
+- GO_genes: Mapping of gene feature identifiers to gene ontology identifiers.
+- all_genes: Annotations of gene feature identifiers.
+- all_GO: Annotations of gene ontology identifiers.
+
+```{r message=FALSE, echo=TRUE, warning=FALSE}
+allgenes.Ensembl = getBM(attributes=c("ensembl_gene_id", "description"),mart=ensembl)
+colnames(allgenes.Ensembl)[1] = 'gene_id'
+allGO.Ensembl = getBM(attributes=c('go_id', 'name_1006', 'namespace_1003'), mart=ensembl)
+GOgenes.Ensembl = getBM(attributes=c('ensembl_gene_id', 'go_id'),mart=ensembl)
+colnames(GOgenes.Ensembl)[1] = 'gene_id'
+```
+
+##Running the random forest algorithm using local annotations
+
+-Uses Random forest statistical framework to score each gene feature from different conditions
+
+```{r message=TRUE, echo=TRUE, warning=FALSE}
+AlvMac_results<-GO_analyse(eSet=es, f='Condition', GO_genes=GOgenes.Ensembl, all_GO=allGO.Ensembl, all_genes=allgenes.Ensembl)
+AlvMac_results
+```
+
+##Ranked table of GO terms (subs)
+```{r message=TRUE, echo=TRUE, warning=FALSE}
+head(AlvMac_results$GO[, c(1:5, 7)], n=5)
+## Ranked table of genes (subset)
+head(AlvMac_results$genes[, c(1:3)], n=5)
+```
+
+##Permutation-based P-value for ontologies
+```{r message=TRUE, echo=TRUE, warning=FALSE}
+AlvMac_results.pVal = pValue_GO(result=AlvMac_results, N=100)
+```
+
+
+##Filtering of the result object
+```{r message=TRUE, echo=TRUE, warning=FALSE}
+#####biological process#####
+BP.5 <- subset_scores(result = AlvMac_results.pVal, namespace = "biological_process", total = 5, p.val=0.05)
+####MF######
+MF.10 <- subset_scores(result = AlvMac_results.pVal, namespace = "molecular_function", total = 10, p.val=0.05)
+####CC######
+CC.15 <- subset_scores(result = AlvMac_results.pVal, namespace = "cellular_component", total = 15, p.val=0.05)
+
+```
+
+
+##Details of the top-ranking GO terms
+```{r message=TRUE, echo=TRUE, warning=FALSE}
+head(BP.5$GO)
+```
+
+##Hierarchical clustering of samples based on gene expression associated with a GO term
+```{r message=TRUE, echo=TRUE, warning=FALSE}
+heatmap_GO(go_id ="GO:0071799",result = BP.5, eSet=es, cexRow=0.4, cexCol=1, cex.main=1, main.Lsplit=30, labRow=es$Condition)
+```
+
+##Details of genes associated with a GO term
+```{r message=TRUE, echo=TRUE, warning=FALSE}
+table_genes(go_id = "GO:0071799", result = BP.5)[,c(1:3)]
+```
+
+To identify the  genes associated with a given GO identifier are needed:
+```{r message=TRUE, echo=TRUE, warning=FALSE}
+feature<-list_genes(go_id = "GO:0071799", result = BP.5)
+feature
+```

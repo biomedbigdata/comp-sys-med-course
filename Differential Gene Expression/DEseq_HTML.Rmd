@@ -1,0 +1,196 @@
+---
+title: "Differential Gene Expression Analysis using DESeq2 R package"
+author: "Monica"
+date: "20 February 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Input data and preparation
+
+A
+
+The Count table
+
+ -Must be raw counts of sequencing reads
+ - Each column represents independent biological replicate
+
+We aligned 10 Tumor and 10 Normal samples. Let's read the count file into R. 
+
+```{r readcounts}
+readcounts <- as.matrix(read.csv("C:/Users/selva/Desktop/B2_course/merged_gene_counts_1.csv", sep = ',', row.names = 1, header = TRUE))
+head(readcounts)
+```
+
+## Importing the metadata
+
+- Inofmation about the samples
+- features
+- overall experiment
+
+```{r coldata}
+coldata <- read.csv("C:/Users/selva/Desktop/B2_course/list.txt", sep="\t")
+head(coldata)
+```
+
+## DESeq package
+
+library(DESeq2)
+
+```{r, message=FALSE, echo=TRUE, warning=FALSE}
+library(DESeq2)
+dd<-DESeqDataSetFromMatrix(countData = readcounts,
+                              colData = coldata,
+                              design = ~Condition)
+head(dd)
+```
+
+## Normalization
+
+- Library size --> size factor
+
+
+```{r, message=FALSE, echo=TRUE}
+dd<-estimateSizeFactors(dd)
+sizeFactors(dd)
+head( counts(dd, normalized=TRUE ) )
+```
+
+
+##Gene Dispersion
+
+- To eliminate the read count bias
+
+```{r, message=FALSE, echo=TRUE, warning=FALSE}
+dd<-estimateDispersions( dd )
+plotDispEsts(dd)
+
+```
+
+##Inference: Calling differential expression
+
+To see whether there is differential expression between conditions"Control"and"Tumor",
+
+```{r, message=FALSE, echo=TRUE, warning=FALSE}
+dds <- DESeq(dd)
+res <- results( dds )
+head(res)
+```
+
+The interpretation of the columns of data.frame is as follows.
+- id feature identifier
+- baseMean mean normalised counts, averaged over all samples from both conditions
+- baseMeanA mean normalised counts from condition A
+- baseMeanB mean normalised counts from condition B
+- foldChange fold change from condition A to B
+- log2FoldChange the logarithm (to basis 2) of the fold change
+- pval p value for the statistical significance of this change
+- padj p value adjusted for multiple testing with the Benjamini-Hochberg procedure  
+
+
+##MA Plot
+
+```{r message=FALSE, echo=TRUE, warning=FALSE}
+plotMA(res, ylim=c(-2,2))
+```
+
+##Volcano plot
+
+```{r, message=FALSE, echo=TRUE, warning=FALSE}
+library(EnhancedVolcano)
+EnhancedVolcano(res, lab = rownames(res), x = 'log2FoldChange',  y = 'pvalue', xlim = c(-5, 8), ylim=c(0,10))
+```
+
+##Plot counts for single gene
+To check the counts of reads for a single gene across the groups.
+```{r, message=FALSE, echo=TRUE, warning=FALSE}
+plotCounts(dd, gene=which.min(res$padj), intgroup="Condition")
+
+####how to plot using ggplot
+f<-plotCounts(dd, gene=which.min(res$padj), intgroup="Condition", returnData = TRUE)
+ggplot(f,aes(x=interaction(Condition), y=count, color=Condition,))+geom_point()+scale_y_log10()
+
+```
+
+##Significant genes
+To find the significant genes, according to some chosen threshold for the false dicovery rate (FDR) as well as p-value
+
+```{r, message=FALSE, echo=TRUE, warning=FALSE}
+resSig <- subset(res, padj < 0.1)
+resSig_p <- subset(res, pvalue < 0.05)
+resSig_p
+head( resSig_p[ order(resSig$pvalue), ] )
+```
+##Genes which are downregulated in Tumor
+```{r, message=FALSE, echo=TRUE, warning=FALSE}
+head( resSig_p[order( resSig_p$log2FoldChange, -resSig_p$baseMean), ] )
+```
+
+
+####Upregulated genes
+```{r, message=FALSE, echo=TRUE, warning=FALSE}
+head( resSig_p[ order( -resSig$log2FoldChange, -resSig$baseMean ), ] )
+```
+
+##Multiple factor analysis
+
+```{r, message=FALSE, echo=TRUE, warning=FALSE}
+dd_multi <- DESeqDataSetFromMatrix(countData = readcounts,
+                              colData = coldata,
+                              design = ~Condition+Obesity)
+
+
+dd_multi$group <- factor(paste0(dd_multi$Condition, dd_multi$Obesity))
+design(dd_multi) <- ~ group
+dd_multi <- DESeq(dd_multi)
+resultsNames(dd_multi)
+results(dd_multi, contrast=c("group", "Tumoryes", "ControlNo"))
+```
+
+
+## Heatmap of the count table
+
+Visualization of differentially expressed genes using heatmap function
+```{r, message=FALSE, echo=TRUE, warning=FALSE}
+######varianceStabilizingTransformation: is it good to use ?#########
+library(pheatmap)
+rld<-rlog(dd)
+mat = assay(rld)[ head(order(res$padj),30), ]#top 30 genes
+mat = mat - rowMeans(mat)
+df = as.data.frame(colData(rld)[,c("Condition")]) # Create a dataframe with a column of the conditions
+colnames(df) = "Condition" # Rename the column header
+rownames(df) = colnames(mat) # add rownames
+# and plot the actual heatmap
+pheatmap(mat, annotation_col=df)
+```
+
+##Corrplot
+
+This plot will help to get an overview of the correlation across all samples. he corrplot package provides with a convenient plotting function to help us visualise correlation matrix. Correlation of gene expression between every pair of samples is needed for the corrplot. cor() function is used for with the normalized gene counts:
+```{r, message=FALSE, echo=TRUE, warning=FALSE}
+library(corrplot)
+library(dplyr)
+N_counts<-counts(dd, normalized=TRUE )
+Corr <- N_counts %>% 
+    cor(method = "spearman")
+
+corrplot(Corr, 
+         method = "circle", cl.lim = c(0.8, 1), is.corr = FALSE)
+```
+
+
+##PCA plot
+```{r}
+vsdata <- vst(dd, blind=FALSE)
+plotPCA(vsdata, intgroup="Condition")
+
+```
+
+##Exporting results to CSV files
+```{r, message=FALSE, echo=TRUE, warning=FALSE}
+write.csv(resSig_p, file="condition_treated_results.csv")
+```
+
