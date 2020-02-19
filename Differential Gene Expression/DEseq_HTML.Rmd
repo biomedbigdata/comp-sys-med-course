@@ -1,0 +1,156 @@
+---
+title: "DEseq_HTML"
+author: "Monica"
+date: "13 February 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Input data and preparation
+
+The Count table
+
+ - Must be raw counts of sequencing reads
+ - Each column represents independent biological replicate
+
+We aligned 10 Tumor and 10 Normal samples. Let's read the count file into R, then convert it to a matrix. 
+
+```{r readcounts}
+readcounts <- as.matrix(read.csv("gene_counts.csv", sep = ',', row.names = 1, header = TRUE))
+head(readcounts)
+```
+
+## Importing the metadata
+
+- Information about the samples
+- features
+- overall experiment
+
+```{r coldata}
+library(readr)
+coldata <- read_tsv("list.txt")
+head(coldata)
+```
+
+## DESeq package
+
+library(DESeq2)
+```{r, message=FALSE, echo=TRUE, warning=FALSE}
+library(DESeq2)
+dd <- DESeqDataSetFromMatrix(countData = readcounts,
+                              colData = coldata,
+                              design = ~Condition)
+head(dd)
+```
+
+## Normalization
+
+- Library size --> size factor
+
+
+```{r, message=FALSE, echo=TRUE}
+dd<-estimateSizeFactors(dd)
+sizeFactors(dd)
+head( counts(dd, normalized=TRUE ) )
+```
+
+
+##Gene Dispersion
+
+- To eliminate the read count bias
+- A risk in differential expression analysis is that low count values often show extreme log fold changes -> DEseq2 counters this by shrinking LFC values
+- How does DEseq2 knows how much to shrink? It considers the dispersion, i.e. standard deviation for sufficiently large expressed genes and noise otherwise.
+
+
+```{r, message=FALSE, echo=TRUE, warning=FALSE}
+dd<-estimateDispersions( dd )
+plotDispEsts(dd)
+```
+
+##Inference: Calling differential expression
+
+To see whether there is differential expression between conditions "Control" and "Tumor", 
+
+```{r, message=FALSE, echo=TRUE, warning=FALSE}
+dds <- DESeq(dd)
+res <- results( dds )
+head(res)
+```
+
+The interpretation of the columns of data.frame is as follows.
+- id feature identifier
+- baseMean mean normalised counts, averaged over all samples from both conditions
+- baseMeanA mean normalised counts from condition A
+- baseMeanB mean normalised counts from condition B
+- foldChange fold change from condition A to B
+- log2FoldChange the logarithm (to basis 2) of the fold change
+- pval p value for the statistical significance of this change
+- padj p value adjusted for multiple testing with the Benjamini-Hochberg procedure  
+
+
+##MA Plot
+
+```{r message=FALSE, echo=TRUE, warning=FALSE}
+plotMA(res, ylim=c(-2,2))
+```
+
+Questions: 
+- What does M and A stand for?
+- What can you say about the relationship of mean count and log fold change? 
+
+##Volcano plot
+
+```{r}
+library(EnhancedVolcano)
+EnhancedVolcano(res, lab = rownames(res), x = 'log2FoldChange',  y = 'pvalue', xlim = c(-5, 8), ylim=c(0,5), pCutoff = 0.001)
+```
+
+##Plot counts for single gene
+To check the counts of reads for a single gene across the groups.
+```{r}
+plotCounts(dds, gene=which.min(res$padj), intgroup="Condition")
+```
+
+Bonus task: recreate this as a box plot with ggplot2
+
+##Significant genes
+To find the significant genes, according to some chosen threshold for the false discovery rate (FDR) as well as p-value
+
+```{r, message=FALSE, echo=TRUE, warning=FALSE}
+resSig <- subset(res, padj < 0.1)
+resSig_p <- subset(res, pvalue < 0.05)
+resSig_p
+head( resSig_p[ order(resSig$pvalue), ] )
+```
+##Genes which are downregulated in Tumor
+```{r}
+head( resSig_p[order( resSig_p$log2FoldChange, -resSig_p$baseMean), ] )
+```
+
+
+####Upregulated genes
+```{r, message=FALSE, echo=TRUE, warning=FALSE}
+head( resSig_p[ order( -resSig$log2FoldChange, -resSig$baseMean ), ] )
+```
+
+## Heatmap of the count table
+
+Visualization of differentially expressed genes using heatmap function
+```{r, message=FALSE, echo=TRUE, warning=FALSE}
+######varianceStabilizingTransformation: is it good to use ?#########
+vsdFull = varianceStabilizingTransformation(dds )
+library("RColorBrewer")
+library("gplots")
+select = order(rowMeans(counts(dds)), decreasing=TRUE)[1:50]
+hmcol = colorRampPalette(brewer.pal(10, "GnBu"))(100)
+heatmap.2(assay(vsdFull)[select,], col = hmcol, trace="none", margin=c(10, 6))
+```
+
+##Exporting results to CSV files
+```{r, message=FALSE, echo=TRUE, warning=FALSE}
+write.csv(resSig_p, file="condition_treated_results.csv")
+```
+
