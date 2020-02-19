@@ -1,0 +1,232 @@
+---
+title: "Differential Gene Expression Analysis using DESeq2 R package"
+date: "20 February 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+DESeq2 integrates methodological advances with several novel features to facilitate a more quantitative analysis of comparative RNA-seq data using shrinkage estimators for dispersion and fold change. 
+
+## Input data and preparation
+As an input, the DESeq2 package requires un-normalized count data obtained from RNA-seq or another high-throughput sequencing texhniques in the form of a **matrix of integer values**. 
+
+The value in the i-th row and the j-th column of the matrix tells how many reads can be assigned to gene i in sample j. 
+
+The values in the matrix should be un-normalized counts or estimated counts of sequencing reads.  The RNA-seq workflow describes multiple techniques for preparing such count matrices. It is important to provide count matrices as input for DESeq2's statistical model (Love, Huber, and Anders 2014) to hold, as only the count values allow assessing the measurement precision correctly. The DESeq2 model internally corrects for *library size*, so transformed or normalized values such as counts scaled by library size should not be used as input.
+
+
+**The Count table**
+
+About input data: 10 cases of gallbladder cancer tumorous tissue samples with matched normal tissue are obtained from surgery and perform next-generation sequencing (GSE139682). The raw fastqc files are processed using nf-core/RNA-Seq pipeline. For this analysis, FeatureCounts obtained from nf-core pipeline is used as input file in following analysis.
+
+*Note*
+ - Must be raw counts of sequencing reads
+ - Each column represents independent biological replicates
+ 
+ 
+```{r message=FALSE, echo=TRUE, warning=FALSE, results='hide',eval=FALSE}
+## Task 1: read the file using read.csv function and in matrix format (as.matrix)
+## Task 2: print the few lines from the files
+```
+
+Questions:
+1. How many genes are there in the data?
+
+## Importing the metadata
+
+The metadata can be divided into three groups: information about the samples (table
+colums), about the features (table rows), and about the overall experiment.
+
+```{r message=FALSE, echo=TRUE, warning=FALSE,results='hide',eval=FALSE}
+##Task 3: Read the meta data file using read.csv function and display the first 6 rows with all the columns
+```
+
+## DESeq package
+
+DESeq2 package is to normalize the samples for differences in their sequencing depths. To make full use of DESeq2's functions, change the count table into a specific R object that was defined by the authors of DESeq2.
+
+
+```{r message=FALSE, echo=TRUE, warning=FALSE,results='hide',eval=FALSE}
+##Task 4: install and load the library "DESeq2"
+
+##Task 5: create a DESeq2 object called "dd"" using following function. 
+DESeqDataSetFromMatrix(countData = countdata_file,
+                              colData = meta_file,
+                              design = ~Condition)
+head(dd)
+```
+
+## Normalization
+
+As a first processing step, we need to estimate the *effective library size*. The effective library size information is called the *size factors vector*, since the package only needs to know the relative library sizes. 
+
+If the counts of non-differentially expressed genes in one sample are, on average, twice as high as in another (because the library was sequenced twice as deeply), the size factor for the first sample should be twice that of the other sample. The function *estimateSizeFactors* estimates the size factors from the count data.
+
+```{r message=FALSE, echo=TRUE, warning=FALSE,results='hide',eval=FALSE}
+##task 6: use estimateSizeFactors() function to estimate the library size of the DESeq object "dd"
+
+##syndax: sizeFactors(DESeq_object)
+##head( counts(DESeq_object, normalized=TRUE ) )
+```
+Questions:
+1.Does all the samples contain same library size?
+
+##Why does Gene Dispersion be the key determinant of the read count bias?
+
+In differential expression analysis of RNA-sequencing (RNA-seq) read count data for two sample groups, it is known that highly expressed genes (or longer genes) are more likely to be differentially expressed which is called read count bias (or gene length bias). This bias had great effect on the downstream Gene Ontology over-representation analysis. The inference in DESeq relies on an estimation of the typical relationship between the data's variance and their mean, or, equivalently, between the data's dispersion and their mean.  estimateDispersions() is used to estimate the dispersions in DESeq2
+
+The function estimateDispersions performs three steps.
+- First, It estimates a dispersion value for each gene, 
+- Then, it fits a curve through the estimates. 
+- And finally, it assigns to each gene a dispersion value, using a choice between the per-gene estimate and the fitted value.
+
+- A risk in differential expression analysis is that low count values often show extreme log fold changes -> DEseq2 counters this by shrinking LFC values
+- How does DEseq2 knows how much to shrink? It considers the dispersion, i.e. standard deviation for sufficiently large expressed genes and noise otherwise.
+
+```{r message=FALSE, echo=TRUE, warning=FALSE,results='hide',eval=FALSE}
+##task 7: use estimateDispersions() function to estimate the Gene Dispersion of the DESeq object (dd)
+##task 8: Plot the dispersion using plotDispEsts() function
+
+```
+
+##Inference: Calling differential expression
+
+Having estimated the dispersion for each gene, it is straight-forward to look for differentially expressed genes. To see whether there is differential expression between conditions "Control" and "Tumor"", we simply call the function DESeq()
+
+```{r message=FALSE, echo=TRUE, warning=FALSE,results='hide',eval=FALSE}
+##Task8: call the function DESeq() with the DESeq object (dd) and save it to the variable dds
+##Task9:  call the function results() by passing the dds variable and save the result in a variable called "res""
+##Task10:display the first 6 rows with all the column
+
+```
+
+The interpretation of the columns of data.frame is as follows.
+- id feature identifier
+- baseMean mean normalised counts, averaged over all samples from both conditions
+- baseMeanA mean normalised counts from condition A
+- baseMeanB mean normalised counts from condition B
+- foldChange fold change from condition A to B
+- log2FoldChange the logarithm (to basis 2) of the fold change
+- pval p value for the statistical significance of this change
+- padj p value adjusted for multiple testing with the Benjamini-Hochberg procedure  
+
+
+##MA Plot
+Next step is to plot the log2 fold changes against the mean normalised counts. The plot visualizes the difference between measurements taken in two samples, by transformating the data onto logratio and mean average scales. In DESeq2, the function plotMA shows the log2 fold changes attributable to a given variable over the mean of normalized counts for all the samples in the DESeqDataSet. 
+
+It is more useful visualize the MA-plot for the shrunken log2 fold changes, which remove the noise associated with log2 fold changes from low count genes without requiring arbitrary filtering thresholds.
+
+- What does M and A stand for?
+- What can you say about the relationship of mean count and log fold change?
+
+```{r message=FALSE, echo=TRUE, warning=FALSE}
+##Task11:plot the MA graph using plotMA() function with res object
+```
+
+##Volcano plot
+
+```{r}
+##Task12: install the package called "EnhancedVolcano" using  BiocManager installer and load the library
+##TAsk13: create a volcano plot using EnhancedVolcano() and aslo try to plot with different foldchange cutoff value
+
+   ## syntax:  EnhancedVolcano(Object-res, lab = rownames(res), x = 'log2FoldChange',
+   ## y = 'pvalue', xlim = c(-5, 8))
+
+```
+
+
+##Plot counts for single gene
+To check the counts of reads for a single gene across the groups.
+```{r}
+##Task14: plot the counts of genes between two condition using plotCounts function for the dds object
+
+##function name: plotCounts()
+##Arguments: DeSeq2 object dds
+##gene: a character, specifying the name of the gene to plot. In our case, take the high significant p-value(lower the p-value higher the significant) from the column pdaj from res object using which.min(res$padj)
+##intgroup:interesting groups
+```
+Bonus task: recreate this as a box plot with ggplot2
+
+
+##Significant genes
+To find the significant genes, according to some chosen threshold for the false dicovery rate (FDR) as well as p-value
+
+```{r message=FALSE, echo=TRUE, warning=FALSE,results='hide',eval=FALSE}
+##Task15: Create two subset for padj values greater than 0.1 and for pvalue less than 0.05 and save into the variables "resSig" and "resSig_p" respectively
+##Task16: print the top few rows and columns in the descending order
+```
+
+List out the genes which are downregulated in Tumor
+```{r message=FALSE, echo=TRUE, warning=FALSE,results='hide',eval=FALSE}
+##Task16: print the values from resSig_p to get the downregulated gene list
+```
+
+List out the genes which are upregulated in Tumor condition
+```{r message=FALSE, echo=TRUE, warning=FALSE,results='hide',eval=FALSE}
+##Task17: print the values from resSig_p to get the upregulated gene list
+```
+
+##Multi-factor designs
+
+Experiments with more than one factor influencing the counts can be analyzed using design formula that include the additional variables. In fact, DESeq2 can analyze any possible experimental design that can be expressed with fixed effects terms (multiple factors, designs with interactions, designs with continuous variables, splines, and so on are all possible).
+
+By adding variables to the design, one can control for additional variation in the counts. In this case, for our dataset, column Obesity was added to the meta data manually for the exercise purpose. 
+
+```{r message=FALSE, echo=TRUE, warning=FALSE,results='hide',eval=FALSE}
+dds_multi<- DESeqDataSetFromMatrix(countData = cts,
+                              colData = coldata,
+                              design = ~Condition+Obesity)
+
+
+dds$group <- factor(paste0(dds$Condition, dds$Obesity))
+design(dds) <- ~ group
+dds <- DESeq(dds)
+resultsNames(dds)
+results(dds, contrast=c("group", "Tumoryes", "ControlNo"))
+
+```
+
+As mentioned in the above example, we can define the design as per the biological interpretation. 
+
+## Heatmap of the count table
+
+To explore a normalized count table, it is often instructive to look at it as a heatmap. Diffentially expressed genes can be viusalized using heatmap function in a meaningful way. 
+```{r message=FALSE, echo=TRUE, warning=FALSE,results='hide',eval=FALSE}
+
+##Create a heatmap with the normalized counts and pheatmap function()
+```
+
+
+##Corrplot
+
+This plot will help to get an overview of the correlation across all samples. he corrplot package provides with a convenient plotting function to help us visualise correlation matrix. Correlation of gene expression between every pair of samples is needed for the corrplot. cor() function is used for with the normalized gene counts:
+```{r message=FALSE, echo=TRUE, warning=FALSE,results='hide',eval=FALSE}
+##Task 18: install and upload the package corrplot and dplyr
+N_counts<-counts(dd, normalized=TRUE )
+Corr <- N_counts %>% 
+    cor(method = "spearman")
+corrplot(Corr, 
+         method = "circle", cl.lim = c(0.8, 1), is.corr = FALSE)
+```
+
+
+##PCA plot
+
+To explore the similarity/disimilarity between the two groups, Principal Component Analysis (PCA) and hierarchical clustering methods can be performed. This analysis allows us to see how well the groups are differ. 
+
+Note:  This function calculates a variance stabilizing transformation (VST) from the
+fitted dispersion-mean relation(s) and then transforms the count data (normalized
+by division by the size factors or normalization factors), yielding a matrix
+of values which are now approximately homoskedastic (having constant variance along the range  of mean values). The transformation also normalizes with respect to library size.
+
+```{r}
+#task 19: Create a PCA plot between Control and Tumour and find the difference between them using plotPCA()
+```
+
+Save the results in csv format
+```{r message=FALSE, echo=TRUE, warning=FALSE,results='hide',eval=FALSE}
+##Export the result into csv file 
+```

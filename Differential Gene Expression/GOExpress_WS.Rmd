@@ -1,0 +1,143 @@
+---
+title: "GOExpress"
+author: ""
+date: "20 February 2020"
+reference: GOexpress package
+output: html_document
+
+---
+
+```{r setup, include=FALSE, eval=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Installation of GOexpress
+
+GOExpress contains methods to visualise the expression profile of genes from a microarray or RNA-seq experiment, and offers a supervised clustering approach to identify GO terms containing genes with expression levels that best classify two or more predefined groups of samples. 
+
+```{r message=FALSE, echo=TRUE, warning=FALSE,results='hide',eval=FALSE}
+##Task1: install and load the libraries GOexpress and Biobase using BiocManager::install
+```
+
+## Input data
+
+- Filtered normalised expression matrix
+- AnnotatedDataFrame object of the Biobase package
+ -  phenotypic information for each of those samples
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, results='hide', eval=FALSE}
+##Task2: read the normalized count table as input in a matrix format using read.table and as.matrix 
+
+```
+
+
+## Creating a Phenotypic data
+GOExpress needs AnnotatedDataFrame object of the Biobase package providing phenotypic information for each of those samples (e.g. unique identifier, treatment, time-point). GOexpress expects those two variables in an ExpressionSet container of the Biobase package, both simplifying the manipulation of the data and, most importantly, ensuring interoperatibility with other packages that handle Bioconductor ExpressionSet objects. The other fields of the ExpressionSet container may be left empty as GOexpress does not currently access them. Instructions to create  AnnotatedDataFrame and ExpressionSet objects are detailed in the vignettes of the Biobase package.
+
+
+```{r message=FALSE, warning=FALSE, results='hide',eval=FALSE}
+##Task2: read the metadata using read.table 
+##Task3: Create a new phenotype data as follows: 
+phenoData <- new("AnnotatedDataFrame", data=file_name)
+##Task4: Create a new ExpressionSet using following function and stored it in a variable 
+es <- new("ExpressionSet", exprs=exprs, phenoData=phenoData)
+```
+
+##Preparing the grouping factor to analyse
+
+-  Finding GO terms containing genes that best classify samples according their Condition
+```{r echo=TRUE, message=FALSE, warning=FALSE, results='hide', eval=FALSE}
+##Task5: Check whether Condition column in metadata is factor or not. If it is not, convert them as factor as follows:
+es$Condition <- factor(es$Condition)
+```
+
+##Generating local Annotations
+
+Using the latest Ensembl release, Download the annotations of homo sapiens gene identifiers:
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, results='hide',eval=FALSE}
+##Task6: Install and load the biomart library
+# Connect to the Ensembl Genes annotation for Homosapiens as follows:
+ensembl = useMart("ensembl",dataset = "hsapiens_gene_ensembl")
+```
+
+
+##Downloading three types of annotations
+
+- GO_genes: Mapping of gene feature identifiers to gene ontology identifiers.
+- all_genes: Annotations of gene feature identifiers.
+- all_GO: Annotations of gene ontology identifiers.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE,eval=FALSE}
+###Task7: Download all gene feature and oncology identifiers using following commands:
+allgenes.Ensembl = getBM(attributes=c("ensembl_gene_id", "description"),mart=ensembl)
+colnames(allgenes.Ensembl)[1] = 'gene_id'
+allGO.Ensembl = getBM(attributes=c('go_id', 'name_1006', 'namespace_1003'), mart=ensembl)
+GOgenes.Ensembl = getBM(attributes=c('ensembl_gene_id', 'go_id'),mart=ensembl)
+colnames(GOgenes.Ensembl)[1] = 'gene_id'
+```
+
+##Running the random forest algorithm using local annotations
+
+- Uses Random forest statistical framework to score each gene feature from different conditions. The ensuing analysis therefore considers the Condition factor. Here, we use locally saved copies of gene and gene ontology annotations from the  previously step using the biomaRt package
+
+```{r echo=TRUE, message=TRUE, warning=FALSE, eval=FALSE}
+##Task8: GO_analyse() systematically connects to the latest (i.e.current) Ensembl release and fetch appropriate annotations. 
+AlvMac_results<-GO_analyse(eSet=es, f='Condition', GO_genes=GOgenes.Ensembl, all_GO=allGO.Ensembl, all_genes=allgenes.Ensembl)
+```
+
+##Ranked table of GO terms (subs)
+AlvMac_results contains all the GO terms along with the corresponding genes, rank, and score. We can find out top rank GO in our data sets as follows:
+```{r message=TRUE, warning=FALSE, results='hide', eval=FALSE}
+##Task9: Make a subset of GO_analyse results to proceed further
+head(AlvMac_results$GO[, c(1:5, 7)], n=5)
+## Ranked table of genes (subset)
+head(AlvMac_results$genes[, c(1:3)], n=5)
+```
+
+##Permutation-based P-value for ontologies
+To assess the significance of GO term ranking - or scoring -, permutation based function is used in  randomising the gene feature ranking, and counting how many times each GO term is ranked (scored) equal or higher than the real rank (score).
+
+```{r message=TRUE, warning=FALSE, results='hide', eval=FALSE}
+AlvMac_results.pVal = pValue_GO(result=AlvMac_results, N=100)
+```
+
+
+##Filtering of the result object
+
+The subset_scores function allows to filter for GO terms passing certain criteria. It is used to identify the specific and well-defined GO terms as opposed to vague or generalized and uninformative GO terms. GO terms are consequently susceptible to single-gene events and artefacts in the expression data, as opposed to GO terms with a reasonable number of associated genes. Using the subset_scores function, it is easy to filter out those GO terms with only a handful of associated genes, in combination with a standard P-value filter:
+
+```{r eval=FALSE, message=TRUE, warning=FALSE, include=FALSE, eval=FALSE}
+#####biological process#####
+BP.5 <- subset_scores(result = AlvMac_results.pVal, namespace = "biological_process", total = 5, p.val=0.05)
+####MF######
+MF.10 <- subset_scores(result = AlvMac_results.pVal, namespace = "molecular_function", total = 10, p.val=0.05)
+####CC######
+CC.15 <- subset_scores(result = AlvMac_results.pVal, namespace = "cellular_component", total = 15, p.val=0.05)
+head(BP.5$GO)
+
+```
+
+##Hierarchical clustering of samples based on gene expression associated with a GO term
+
+From the above section, We identified GO terms containing the largest proportion of top-ranking genes that best classify samples according to their COndition. heatmap can also be generated to visualise simulatenously the clustering of samples and the expression level of each gene ineach sample
+
+```{r echo=TRUE, message=TRUE, warning=FALSE, eval=FALSE}
+heatmap_GO(go_id ="GO:0071799",result = BP.5, eSet=es, cexRow=0.4, cexCol=1, cex.main=1, main.Lsplit=30, labRow=es$Condition)
+```
+
+##Details of genes associated with a GO term
+The next step is to explore the individual genes associated with a given GO term. The default behaviour of the function is to order the gene features by increasing rank
+
+```{r echo=TRUE, message=TRUE, warning=FALSE, eval=FALSE}
+table_genes(go_id = "GO:0071799", result = BP.5)[,c(1:3)]
+```
+
+To identify the  genes associated with a given GO identifier are needed:
+
+```{r echo=TRUE, message=TRUE, warning=FALSE, eval=FALSE}
+feature<-list_genes(go_id = "GO:0071799", result = BP.5)
+feature
+```
+
+
