@@ -1,0 +1,607 @@
+---
+title: "ML_Course"
+output: ioslides_presentation
+---
+
+## Typical machine learning workflow
+<div style = "position:absolute;
+      top: 250px;
+      left: 20px;
+      z-index: 2;">
+![](ML_workflow.png){width=800px}
+</div>
+  
+## caret
+
+<div style = "position:absolute;
+      top: 50px;
+      left: 250px;
+      z-index: 2;">
+![](Caret-package-in-R.png){width=200px}
+</div>
+
+
+- Caret is an acronym for **[C]**lassification **[A]**nd **[RE]**gression **[T]**raining
+- go-to package for ML in R
+* Caret functionality:
+  + hundreds of ML algorithms (currently ~240)
+  + Some preprocessing
+  + data splitting
+  + Feature selection
+  + Model comparison
+  + etc
+- more info: https://topepo.github.io/caret/index.html 
+
+
+## Aim of today's course 
+  - learn about and apply different ML algorithms for classification tasks
+  - check data and pre-process it
+  - train different models
+  - label permutation 
+  - compare models 
+
+
+## Classification of Lungcancer Dataset
+
+  - micro array data of whole-genome transcriptome data from lungcancer patients
+  - based on expression profile we want to classify data into adenocarcinoma (adc) 
+  
+  - First task: 
+    create matrix out of lungcancer data
+    and create a factor class labels which contains information about which ones are adc patients. Hint: Order matters
+    
+
+```{r, echo=T, eval = T, cache=T}
+
+gz_file <- gzfile("lungcancer_data.csv.gz", "rt")  
+lungcancer_data <- read.csv(gz_file, header = TRUE, row.names = 1) 
+meta_adc <- read.csv("true_adc.csv", header = F)$V1
+
+```
+
+## Class_labels
+
+```{r}
+lc_matrix <-
+
+class_labels <- 
+```
+
+
+
+## Exploratory Analysis of the data
+  - check if data has missing values
+  - look at distribution of data via histogram 
+  - look at distribution of data via qqplots (Hint: there are too many data points for this plot to work.
+    Use the method sample to obtain a representative sample of the data points, i.e. 1e5)
+  - if data is skewed try to transform it 
+  - scale data if necessary
+  - plot a heatmap of the data 
+  - perform a PCA and color by cancer type 
+
+## Detect NAs
+
+```{r}
+
+```
+
+
+
+## Histogram
+
+```{r, eval=T, cache=T}
+
+```
+
+## QQ Plot
+
+
+```{r, cache=T}
+
+```
+
+
+## Histograms of transformed data: log2 transformed
+
+```{r, cache=T}
+
+```
+
+## Transformation and scaling
+
+  - Log transformation has several positive effects on our data. 
+  - Has a variance stabilizing effect, i.e. genes with low expression show larger variance due to noise which will give them unjustified weight in machine learning
+  - counters this effect and makes sure that genes with higher expression and lower variance will be used.
+  - Scaling is a technique used to make data across genes more comparable. 
+  - Also, this does not take into account that there are large differences in variance between genes. 
+  - non-linear methods such as the random forest that you will use further below are not affected by unscaled data
+```{r, eval=T, cache = TRUE}
+
+```
+
+## Histograms of transformed data: log2 transformed and scaled
+
+
+```{r, cache=T}
+
+```
+## QQ Plot of transformed Data 
+
+```{r, cache=T}
+
+```
+
+
+## Heatmap 
+
+
+
+## Heatmap
+
+```{r, eval=T, cache=T, echo=F}
+
+
+```
+
+## PCA colored by cancer group
+ 
+```{r, eval =F, cache=T}
+lc_pca <- 
+
+lc_out <-  
+lc_out$class <- 
+
+percentage <- round(lc_pca$sdev / sum(lc_pca$sdev) * 100, 2)
+percentage <- paste( colnames(lc_out), "(", paste( as.character(percentage), "%", ")", sep="") )
+
+library(ggplot2)  
+ggplot(lc_out, aes(x= ,y= ,color=))+
+  geom_point() + 
+  xlab(percentage[1]) + 
+  ylab(percentage[2]) +
+  theme_bw()
+```
+
+
+## Loadings of PCA
+
+```{r, eval =T, cache=T}
+library(factoextra)
+eig.val <- get_eigenvalue(lc_pca)
+  
+res.var <- get_pca_var(lc_pca) # Results for Variables
+
+#res.var$contrib     # Contributions to the PCs   
+
+#Top 10 contributers to pca1
+top10_contrib_pc1 <- names(sort(res.var$contrib[,1], decreasing = T)[1:10])
+
+top10_contrib_pc1
+```
+
+## Top10 Loadings of PCA 
+
+If you look at the gene ids you will notice a leading X, which was introduced as column names may not start with a number. 
+We need to remove this to get the original ids. 
+This sort of string manipulation is best achieved with stringr.
+
+  -Task: remove the leading "X" from the names of the Top10 Loadings of the PCA
+
+## Removing of the leading "X"
+
+```{r}
+#remove leading X prefix using the package
+library(stringr)
+
+top10_contrib_pc1 <- 
+```
+
+## Using BiomaRt to map Entrez Ids to gene symbols
+
+  -biomaRt is an R package that connect to the ensembl servers and allow retrieving information from the web. 
+  -Here, we want to use it to map entrez ids to gene symbols. 
+  -First, we need to prepare for this task:
+
+```{r, cache=T}
+#BiocManager::install("biomaRt")
+library(biomaRt)
+
+ensembl <- useMart("ensembl")
+ensembl <- useDataset("hsapiens_gene_ensembl", mart = ensembl)
+listFilters(ensembl)
+grep("symbol", listFilters(ensembl)$name, value = TRUE)
+```
+
+Next, we can use the function getBM to retrieve the ids. Use the help function ?getBM to learn how this could be done...
+
+## getBM Function
+
+  -attributes: information that you want to have in your output table
+```{r, cache=T}
+getBM()
+```
+
+## Data splitting
+ - create a partition which uses 75% of the samples as training data and the remaining as training data
+ - The function createDataPartition from the caret package can be used to create balanced splits of the data
+ - The resampling indices are chosen using random numbers 
+ - In order to assure reproducible results set seed to 100
+
+## Data splitting
+```{r, cache=T}
+library(caret)
+set.seed(100)
+inTrain <- createDataPartition()
+
+training <- 
+testing <- 
+```
+
+
+
+## Train function in Caret
+  -wrapper function for around 240 ML models 
+  -function that fits predictive models over different tuning parameters
+
+![](train_function.png){width=850px} 
+
+## Generate a Random Forest Model
+  - use the train() function and method "ranger" and set seed again to 100
+  - The first two arguments to train are the predictor and outcome data objects, respectively 
+  - The third argument, method, specifies the type of model (see train Model List or train Models By Tag)
+  - automatically tests different tuning parameters (can also be chosen the user. See later.)
+  - By default, the function chooses the tuning parameters associated with the best value
+  - use the argument "num.trees = 10" for a simple and time saving model. Calculation will still take a few minutes
+  
+## Generate a Random Forest Model
+```{r,  cache=T}
+set.seed(100)
+
+#example with matrix
+rForest <- train()
+
+```
+
+
+
+
+## Take a closer look at the model
+```{r, echo=F, cache=T}
+rForest
+```
+
+
+## Apply Model to testing data and plot confusion matrix
+  -Task: use the functions predict() and confusionMatrix() to asses the performance of our model on the testing data
+  
+## Confusion matrix
+```{r, cache=T}
+predictions_rforest <- predict()
+confusionMatrix(data=predictions_rforest, reference= )
+```
+
+
+
+
+## Plotting of confusion matrix
+  - Code found on StackOverFlow (https://stackoverflow.com/questions/23891140/r-how-to-visualize-confusion-matrix-using-the-caret-package)
+```{r, echo=F, cache=T}
+draw_confusion_matrix <- function(cmtrx) {
+  
+  total <- sum(cmtrx$table)
+  
+  res <- as.numeric(cmtrx$table)
+  
+  # Generate color gradients. Palettes come from RColorBrewer.
+  
+  greenPalette <- c("#F7FCF5","#E5F5E0","#C7E9C0","#A1D99B","#74C476","#41AB5D","#238B45","#006D2C","#00441B")
+  
+  redPalette <- c("#FFF5F0","#FEE0D2","#FCBBA1","#FC9272","#FB6A4A","#EF3B2C","#CB181D","#A50F15","#67000D")
+  
+  getColor <- function (greenOrRed = "green", amount = 0) {
+    
+    if (amount == 0)
+      
+      return("#FFFFFF")
+    
+    palette <- greenPalette
+    
+    if (greenOrRed == "red")
+      
+      palette <- redPalette
+    
+    colorRampPalette(palette)(100)[10 + ceiling(90 * amount / total)]
+    
+  }
+  
+  # set the basic layout
+  
+  layout(matrix(c(1,1,2)))
+  
+  par(mar=c(2,2,2,2))
+  
+  plot(c(100, 345), c(300, 450), type = "n", xlab="", ylab="", xaxt='n', yaxt='n')
+  
+  title('CONFUSION MATRIX', cex.main=2)
+  
+  # create the matrix
+  
+  classes = colnames(cmtrx$table)
+  
+  rect(150, 430, 240, 370, col=getColor("green", res[1]))
+  
+  text(195, 435, classes[1], cex=1.2)
+  
+  rect(250, 430, 340, 370, col=getColor("red", res[3]))
+  
+  text(295, 435, classes[2], cex=1.2)
+  
+  text(125, 370, 'Predicted', cex=1.3, srt=90, font=2)
+  
+  text(245, 450, 'Actual', cex=1.3, font=2)
+  
+  rect(150, 305, 240, 365, col=getColor("red", res[2]))
+  
+  rect(250, 305, 340, 365, col=getColor("green", res[4]))
+  
+  text(140, 400, classes[1], cex=1.2, srt=90)
+  
+  text(140, 335, classes[2], cex=1.2, srt=90)
+  
+  # add in the cmtrx results
+  
+  text(195, 400, res[1], cex=1.6, font=2, col='white')
+  
+  text(195, 335, res[2], cex=1.6, font=2, col='white')
+  
+  text(295, 400, res[3], cex=1.6, font=2, col='white')
+  
+  text(295, 335, res[4], cex=1.6, font=2, col='white')
+  
+  # add in the specifics
+  
+  plot(c(100, 0), c(100, 0), type = "n", xlab="", ylab="", main = "DETAILS", xaxt='n', yaxt='n')
+  
+  text(10, 85, names(cmtrx$byClass[1]), cex=1.2, font=2)
+  
+  text(10, 70, round(as.numeric(cmtrx$byClass[1]), 3), cex=1.2)
+  
+  text(30, 85, names(cmtrx$byClass[2]), cex=1.2, font=2)
+  
+  text(30, 70, round(as.numeric(cmtrx$byClass[2]), 3), cex=1.2)
+  
+  text(50, 85, names(cmtrx$byClass[5]), cex=1.2, font=2)
+  
+  text(50, 70, round(as.numeric(cmtrx$byClass[5]), 3), cex=1.2)
+  
+  text(70, 85, names(cmtrx$byClass[6]), cex=1.2, font=2)
+  
+  text(70, 70, round(as.numeric(cmtrx$byClass[6]), 3), cex=1.2)
+  
+  text(90, 85, names(cmtrx$byClass[7]), cex=1.2, font=2)
+  
+  text(90, 70, round(as.numeric(cmtrx$byClass[7]), 3), cex=1.2)
+  
+  # add in the accuracy information
+  
+  text(30, 35, names(cmtrx$overall[1]), cex=1.5, font=2)
+  
+  text(30, 20, round(as.numeric(cmtrx$overall[1]), 3), cex=1.4)
+  
+  text(70, 35, names(cmtrx$overall[2]), cex=1.5, font=2)
+  
+  text(70, 20, round(as.numeric(cmtrx$overall[2]), 3), cex=1.4)
+  
+}
+```
+
+```{r, cache=T}
+cmtrx <- confusionMatrix(data=predictions_rforest, reference= class_labels[-inTrain])
+draw_confusion_matrix(cmtrx)
+```
+
+
+
+
+## Random Class Label Permutation
+
+  -Task:
+  -permutate the class label to test for overfitting
+  -train a random forest model with the permutated data 
+  
+  
+## Random Class Label Permutation
+  
+```{r, cache=T}
+set.seed(100)
+
+
+```
+
+  
+## Comparison of different models
+
+```{r, cache=T}
+resamps <- resamples(list(RandomForest = rForest,
+                          permutedRandomF = rForest_per
+                            ))
+summary(resamps)
+```
+
+
+
+
+## Visual Model Comparison
+### Dotplot
+```{r}
+dotplot(resamps)
+```
+
+## Visual Model Comparison
+### Vertical Box Plots
+```{r}
+bwplot(resamps)
+```
+
+
+
+## Adjusting the training control 
+
+  - trainControl function can be used to specify the type of resampling
+  - default, simple bootstrap resampling is used
+  - Others are available, such as repeated K-fold cross-validation, leave-one-out etc
+  - methods to choose: "boot", "cv", "LOOCV", "LGOCV", "repeatedcv", "timeslice", "none" and "oob"
+  - number controls the number of folds in K-fold cross-validation
+  - repeats applied only to repeated K-fold cross-validation
+  - the adjusted training parameters can be passed to the trControl argument in the train function 
+  
+  - Train a random forest model with 5 fold CV and 2 repeats
+
+## Adjusting the training control
+```{r, cache=T}
+fitControl <- trainControl(
+) # nomally repeated ten times, here 2 for saving time
+
+rForest_custom_trainControl <- train(x = training, 
+                                     y = class_labels[inTrain],
+                                     num.trees = 10, 
+                                     method="ranger",
+                                    #argument to add          )
+
+```
+
+##  Alternate Tuning Grids
+ - tuning parameter grid can be specified by the user
+ - expand.grid function creates a data frame from all combinations of the supplied vectors
+ 
+ - Task: Create a random forest model with the following parameters:
+  Number of variables available for splitting at each tree node: 2:4,
+  min node site: 10 and 20
+  splitting based on gini coefficient ("gini") 
+  
+##  Alternate Tuning Grids 
+```{r, cache=T}
+tgrid <- 
+  
+  
+rForest_custom_tuningGrid <- train(x = training, 
+                  y = class_labels[inTrain],
+                  num.trees = 10, 
+                 trControl= fitControl,
+                 tuneGrid = tgrid,
+                 method="ranger" )
+
+
+```
+
+
+## Change of Metric
+ - by default accuracy and Kappa are computed for classification
+ - To obtain predicted class probabilities within the resampling process, the argument classProbs in trainControl must be set to TRUE
+    [class probabilities will be computed for classification models (along with predicted values) in each resample]
+ - twoClassSummary, will compute the sensitivity, specificity and area under the ROC curve
+  [summaryFunction to compute performance metrics across resamples]
+ - the metric argument specifies what summary metric will be used to select the optimal model
+```{r}
+ctrl <- trainControl(summaryFunction=twoClassSummary, 
+                    classProbs=T,
+                    savePredictions = T)
+
+rForest_wROCMetric <- train(x = training,
+                 y = class_labels[inTrain],
+                 num.trees = 10, #only due to time reason 
+                 method="ranger",
+                 trControl = ctrl,
+                 metric="ROC"
+)
+```
+## Change of Metric to "ROC"
+```{r}
+rForest_wROCMetric
+```
+
+
+## ROC Curves Plotting 
+
+  In trainControl:
+  - classProbs have to be TRUE
+  - summaryFunction has to be set to twoClassSummary
+  - savePredictions: an indicator of how much of the hold-out predictions for each resample should be saved. Values can be either "all", "final", or "none". "final" saves the predictions for the optimal tuning parameters.
+  
+  MLeval easiest way to plot ROC curves
+```{r, cache=T}
+ctrl <- trainControl(summaryFunction=twoClassSummary, 
+                    classProbs=T,
+                    savePredictions = T)
+
+rForest2 <- train(x = training,
+                 y = class_labels[inTrain],
+                 num.trees = 10, #only due to time reason 
+                 method="ranger",
+                 trControl = ctrl
+)
+
+#Gets the optimal parameters from the Caret object and the probabilities then calculates a number of metrics and plots including:
+library(MLeval)
+res <-  evalm(rForest2)
+```
+
+## ROC Curves Plotting 
+
+```{r}
+res$roc
+```
+
+
+## Comparison of different methods
+
+  Task: 
+  - build new models with the following machine learning methods:
+    - Naive Bayes Classifier ("naive_bayes")
+    - Elastic net logistic regression (method = "glmnet", family = "binomial")
+    - Support vector machines (""svmRadial"")
+    
+  - Draw a plot to compare the perfromance of all models
+
+
+## Naive Bayes Classifier
+
+```{r, cache=T}
+set.seed(1)
+naivb <- 
+```
+
+## elastic net logistic regression with glmnet
+
+```{r, cache=T}
+set.seed(1)
+
+lr <- 
+```
+
+
+##Support vector machines
+
+```{r, cache=T}
+set.seed(1)
+svm <-
+```
+
+
+
+## Comparison of all Methods
+
+Task: Draw a Plot like we have done before to obtain a visual comparison of all methods we used
+
+## Comparison of all Methods
+```{r}
+
+```
+
+
+
+
+
+
+## All available Models
+### https://topepo.github.io/caret/available-models.html
